@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Outbound Voice Capacity &amp; Scaling Planner</title>
+<style>
+  :root{
+    --paper:#ECEEF0; --card:#FFFFFF; --ink:#1B2330; --muted:#5A6473;
+    --line:#D9DDE2; --accent:#0F7A6B; --accent-soft:#E3F1EE;
+    --warn:#B5651D; --warn-soft:#F7ECDD; --bad:#B23A3A; --bad-soft:#F6E2E2;
+    --mono:ui-monospace,"SFMono-Regular",Menlo,Consolas,monospace;
+    --sans:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --paper:#14171B; --card:#1D2127; --ink:#E8EAED; --muted:#98A1AC;
+      --line:#2C323A; --accent:#3FB39E; --accent-soft:#16302B;
+      --warn:#D89048; --warn-soft:#33291B; --bad:#D96565; --bad-soft:#341E1E;
+    }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font-family:var(--sans);
+    line-height:1.55;font-size:15px;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto;padding:28px 20px 60px}
+  header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;
+    gap:16px;border-bottom:1px solid var(--line);padding-bottom:18px;margin-bottom:22px}
+  h1{font-size:21px;font-weight:600;margin:0;letter-spacing:-.01em}
+  .sub{color:var(--muted);font-size:13px;margin-top:4px}
+  .grid{display:grid;grid-template-columns:340px 1fr;gap:22px;align-items:start}
+  @media (max-width:840px){.grid{grid-template-columns:1fr}}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px;margin-bottom:22px}
+  .panel h2{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);
+    margin:0 0 14px;font-weight:600}
+  .panel h2 .tag{float:right;text-transform:none;letter-spacing:0;color:var(--accent);font-weight:600}
+  .field{margin-bottom:12px}
+  .field label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:4px}
+  .field .hint{font-size:11px;color:var(--muted);opacity:.85}
+  input[type=number],input[type=text]{width:100%;font-family:var(--mono);font-size:14.5px;color:var(--ink);
+    background:var(--paper);border:1px solid var(--line);border-radius:7px;padding:8px 10px}
+  input[type=text]{font-family:var(--sans)}
+  input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+  .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .modeToggle{display:flex;background:var(--paper);border:1px solid var(--line);
+    border-radius:8px;padding:3px;margin-bottom:14px}
+  .modeToggle button{flex:1;border:0;background:transparent;color:var(--muted);
+    font-family:var(--sans);font-size:11.5px;padding:8px 4px;border-radius:6px;cursor:pointer}
+  .modeToggle button.on{background:var(--card);color:var(--ink);font-weight:600;box-shadow:0 1px 2px rgba(0,0,0,.06)}
+  .divider{height:1px;background:var(--line);margin:16px 0}
+  .stcategory{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:var(--muted);margin:2px 0 10px;font-weight:600}
+  .verdict{border-radius:10px;padding:13px 16px;margin-bottom:16px;font-size:14px;font-weight:600;
+    display:flex;align-items:center;gap:10px}
+  .verdict.ok{background:var(--accent-soft);color:var(--accent)}
+  .verdict.scale{background:var(--warn-soft);color:var(--warn)}
+  .verdict.bad{background:var(--bad-soft);color:var(--bad)}
+  .verdict .ic{font-size:18px}
+  .results{display:grid;grid-template-columns:repeat(2,1fr);gap:12px;margin-bottom:16px}
+  @media (max-width:520px){.results{grid-template-columns:1fr}}
+  .stat{background:var(--paper);border:1px solid var(--line);border-radius:10px;padding:13px 15px}
+  .stat .k{font-size:11.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .stat .v{font-family:var(--mono);font-size:27px;font-weight:600;line-height:1.1;margin-top:4px}
+  .stat .u{font-size:12px;color:var(--muted);margin-top:2px}
+  .stat.primary{background:var(--accent-soft);border-color:transparent}
+  .stat.primary .v{color:var(--accent)}
+  table{width:100%;border-collapse:collapse;font-size:13px;margin-top:2px}
+  th,td{text-align:right;padding:8px 10px;border-bottom:1px solid var(--line);font-family:var(--mono)}
+  th{font-family:var(--sans);font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600}
+  th:first-child,td:first-child{text-align:left}
+  td.act{font-weight:600}
+  td.act.ok{color:var(--accent)} td.act.scale{color:var(--warn)} td.act.bad{color:var(--bad)}
+  tr.breach td{color:var(--bad)}
+  .meter{margin:14px 0 2px}
+  .meter .track{position:relative;height:30px;background:var(--paper);border:1px solid var(--line);border-radius:7px;overflow:hidden}
+  .meter .fill{position:absolute;top:0;left:0;bottom:0;background:var(--accent);opacity:.85;transition:width .25s ease,background .25s ease}
+  .meter .tick{position:absolute;top:0;bottom:0;width:2px;background:var(--ink);opacity:.4}
+  .meter .ticklabel{position:absolute;top:32px;font-size:10.5px;color:var(--muted);font-family:var(--mono);transform:translateX(-50%);white-space:nowrap}
+  .meter .fillval{position:absolute;top:6px;left:8px;font-family:var(--mono);font-size:13px;font-weight:600;color:#fff}
+  .meter .caption{font-size:11px;color:var(--muted);margin-top:26px}
+  .checks{display:flex;flex-direction:column;gap:8px;margin-top:14px}
+  .check{display:flex;align-items:center;gap:9px;font-size:12.5px;padding:9px 12px;border-radius:8px;background:var(--accent-soft)}
+  .check.warn{background:var(--warn-soft)} .check.bad{background:var(--bad-soft)}
+  .check .dot{width:9px;height:9px;border-radius:50%;background:var(--accent);flex:none}
+  .check.warn .dot{background:var(--warn)} .check.bad .dot{background:var(--bad)}
+  .secondary{display:grid;grid-template-columns:repeat(2,1fr);gap:6px 22px;margin-top:8px;font-size:12.5px}
+  .secondary div{display:flex;justify-content:space-between;border-bottom:1px dotted var(--line);padding:5px 0}
+  .secondary span:last-child{font-family:var(--mono);font-weight:600}
+  .copybtn{margin-top:14px;width:100%;border:1px solid var(--line);background:var(--paper);color:var(--ink);
+    font-family:var(--sans);font-size:13px;padding:10px;border-radius:8px;cursor:pointer}
+  .copybtn:hover{border-color:var(--accent);color:var(--accent)}
+  .roster td{padding:6px 6px}
+  .roster input[type=number]{padding:6px 8px;font-size:13px}
+  .roster input[type=text]{padding:6px 8px;font-size:13px}
+  .roster .reqcol{font-family:var(--mono);font-weight:600;text-align:right}
+  .delbtn{border:0;background:transparent;color:var(--muted);cursor:pointer;font-size:16px;padding:0 4px}
+  .delbtn:hover{color:var(--bad)}
+  .addbtn{margin-top:10px;border:1px dashed var(--line);background:transparent;color:var(--muted);
+    font-family:var(--sans);font-size:13px;padding:8px 14px;border-radius:8px;cursor:pointer}
+  .addbtn:hover{border-color:var(--accent);color:var(--accent)}
+  .fleetstats{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-top:16px}
+  @media (max-width:640px){.fleetstats{grid-template-columns:repeat(2,1fr)}}
+  section.doc h2{font-size:16px;margin:0 0 4px;font-weight:600}
+  section.doc h3{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:22px 0 8px;font-weight:600}
+  .formula{font-family:var(--mono);font-size:13px;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:12px 14px;margin:8px 0;white-space:pre-wrap;line-height:1.7}
+  .gloss dt{font-family:var(--mono);font-weight:600;margin-top:10px} .gloss dd{margin:2px 0 0;color:var(--muted)}
+  ul.checklist{margin:6px 0 0;padding-left:18px;font-size:13.5px} ul.checklist li{margin:4px 0}
+  .note{font-size:12.5px;color:var(--muted);background:var(--paper);border-left:3px solid var(--accent);border-radius:0 6px 6px 0;padding:10px 12px;margin:10px 0}
+  footer{margin-top:8px;font-size:12px;color:var(--muted);text-align:center}
+  code{font-family:var(--mono);background:var(--paper);padding:1px 5px;border-radius:4px;font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>Outbound voice capacity &amp; scaling planner</h1>
+      <div class="sub">What to scale — backend, SIP, DIDs, Azure — to serve a campaign or a tenant fleet</div>
+    </div>
+  </header>
+
+  <div class="grid">
+    <!-- ============ INPUTS ============ -->
+    <div>
+    <div class="panel">
+      <h2>Solve for</h2>
+      <div class="modeToggle">
+        <button id="mDeadline" class="on" onclick="setMode('deadline')">Hit a deadline</button>
+        <button id="mConc" onclick="setMode('conc')">Set concurrency</button>
+        <button id="mCapped" onclick="setMode('capped')">Cap the backend</button>
+      </div>
+
+      <div class="field" id="fDeadline">
+        <label>Finish within (calling days)</label>
+        <input type="number" id="targetDays" value="2" min="0.1" step="0.5" oninput="compute()">
+        <span class="hint">Tells you the concurrency + scaling needed.</span>
+      </div>
+      <div class="field" id="fConc" style="display:none">
+        <label>Concurrency to run (channels)</label>
+        <input type="number" id="haveConc" value="30" min="1" step="1" oninput="compute()">
+      </div>
+      <div class="field" id="fCapped" style="display:none">
+        <label>Backend stays capped — run at the ceiling</label>
+        <span class="hint">Concurrency = min(backend cap, Azure). Shows the SLA you can actually hit.</span>
+      </div>
+
+      <div class="divider"></div>
+      <div class="stcategory">Current provisioned state</div>
+      <div class="row2">
+        <div class="field"><label>Backend cap</label>
+          <input type="number" id="backendCur" value="200" min="1" step="10" oninput="compute()"></div>
+        <div class="field"><label>SIP channels</label>
+          <input type="number" id="sipCur" value="200" min="0" step="10" oninput="compute()"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Phone numbers (DIDs)</label>
+          <input type="number" id="didCur" value="150" min="0" step="10" oninput="compute()"></div>
+        <div class="field"><label>Azure sessions</label>
+          <input type="number" id="azureCur" value="2000" min="1" step="100" oninput="compute()"></div>
+      </div>
+
+      <div class="divider"></div>
+      <div class="stcategory">Demand &amp; assumptions</div>
+      <div class="field"><label>Total base — leads to dial</label>
+        <input type="number" id="base" value="50000" min="1" step="1000" oninput="compute()"></div>
+      <div class="field"><label>Retry factor — attempts per lead</label>
+        <input type="number" id="retry" value="1" min="1" step="0.1" oninput="compute()">
+        <span class="hint">1 = base already counts every dial.</span></div>
+      <div class="row2">
+        <div class="field"><label>Connect rate (ASR) %</label>
+          <input type="number" id="asr" value="45" min="1" max="100" step="1" oninput="compute()"></div>
+        <div class="field"><label>Avg talk time (sec)</label>
+          <input type="number" id="aht" value="180" min="1" step="5" oninput="compute()"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Failed ring (sec)</label>
+          <input type="number" id="ring" value="28" min="0" step="1" oninput="compute()"></div>
+        <div class="field"><label>Window (hrs/day)</label>
+          <input type="number" id="window" value="8" min="0.5" max="24" step="0.5" oninput="compute()"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>Occupancy %</label>
+          <input type="number" id="occ" value="80" min="10" max="100" step="5" oninput="compute()"></div>
+        <div class="field"><label>Dials / number / day</label>
+          <input type="number" id="ncap" value="250" min="10" step="10" oninput="compute()"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label>SIP headroom %</label>
+          <input type="number" id="head" value="20" min="0" max="100" step="5" oninput="compute()"></div>
+        <div class="field"><label>Trunk CPS</label>
+          <input type="number" id="cps" value="10" min="1" step="1" oninput="compute()"></div>
+      </div>
+    </div>
+    </div>
+
+    <!-- ============ RESULTS ============ -->
+    <div>
+      <div class="panel">
+        <h2>Result <span class="tag" id="modeTag">hit a deadline</span></h2>
+        <div class="verdict" id="verdict"><span class="ic" id="verdictIc"></span><span id="verdictTxt"></span></div>
+        <div class="results">
+          <div class="stat primary"><div class="k" id="concK">Concurrency required</div><div class="v" id="rConc">—</div><div class="u">simultaneous channels</div></div>
+          <div class="stat"><div class="k">Duration</div><div class="v" id="rDur">—</div><div class="u" id="rDurDays">—</div></div>
+          <div class="stat"><div class="k">SIP channels needed</div><div class="v" id="rSip">—</div><div class="u" id="rSipNote">incl. headroom</div></div>
+          <div class="stat"><div class="k">Phone numbers needed</div><div class="v" id="rPhones">—</div><div class="u" id="rPhonesNote">rotated pool</div></div>
+        </div>
+
+        <div class="stcategory" style="margin-top:4px">Scaling plan — current vs required</div>
+        <table>
+          <thead><tr><th>Resource</th><th>Current</th><th>Required</th><th>Action</th></tr></thead>
+          <tbody id="plan"></tbody>
+        </table>
+
+        <div class="meter">
+          <div class="track">
+            <div class="fill" id="meterFill" style="width:0%"></div>
+            <div class="fillval" id="meterVal"></div>
+            <div class="tick" id="tickB"></div><div class="ticklabel" id="tickBL"></div>
+            <div class="tick" id="tickA"></div><div class="ticklabel" id="tickAL"></div>
+          </div>
+          <div class="caption">Required concurrency vs your current backend &amp; Azure ceilings.</div>
+        </div>
+
+        <div class="checks" id="checks"></div>
+
+        <div class="divider"></div>
+        <div class="secondary">
+          <div><span>Total attempts</span><span id="rAttempts">—</span></div>
+          <div><span>Expected connects</span><span id="rConnects">—</span></div>
+          <div><span>Dials per calling day</span><span id="rDpd">—</span></div>
+          <div><span>Connects per hour</span><span id="rCph">—</span></div>
+          <div><span>Steady dial rate needed</span><span id="rCps">—</span></div>
+          <div><span>Cold-start ramp</span><span id="rRamp">—</span></div>
+          <div><span>Avg channel hold</span><span id="rHold">—</span></div>
+          <div><span>Today's effective ceiling</span><span id="rCeil">—</span></div>
+        </div>
+        <button class="copybtn" onclick="copySummary()" id="copyBtn">Copy plan summary</button>
+      </div>
+
+      <div class="panel">
+        <h2>Quick reference — clear this base in…</h2>
+        <table>
+          <thead><tr><th>Finish in</th><th>Concurrency</th><th>SIP</th><th>Dials/day</th><th>DIDs</th></tr></thead>
+          <tbody id="qref"></tbody>
+        </table>
+        <div class="caption" style="margin-top:8px;font-size:11px">Rows over your backend cap are flagged red — raise the cap first.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ FLEET ============ -->
+  <div class="panel">
+    <h2>Platform fleet planning <span class="tag">how much to scale the backend</span></h2>
+    <p class="sub" style="margin-top:-6px">Backend is a shared ceiling. Sum the peak concurrency across live tenants to size it. Each row uses the shared assumptions above; override per-tenant when you have measured ASR/AHT.</p>
+    <table class="roster">
+      <thead><tr><th>Tenant</th><th style="text-align:right">Base</th><th style="text-align:right">Finish (days)</th><th style="text-align:right">Concurrency</th><th></th></tr></thead>
+      <tbody id="roster"></tbody>
+    </table>
+    <button class="addbtn" onclick="addTenant()">+ Add tenant</button>
+    <div class="field" style="max-width:260px;margin-top:16px">
+      <label>Simultaneity % — share of tenants live at peak</label>
+      <input type="number" id="simul" value="100" min="10" max="100" step="5" oninput="renderFleet()">
+      <span class="hint">100% = all campaigns overlap. Lower if you stagger.</span>
+    </div>
+    <div class="fleetstats">
+      <div class="stat primary"><div class="k">Platform backend target</div><div class="v" id="fBackend">—</div><div class="u" id="fBackendDelta">—</div></div>
+      <div class="stat"><div class="k">SIP channels (fleet)</div><div class="v" id="fSip">—</div><div class="u" id="fSipDelta">—</div></div>
+      <div class="stat"><div class="k">Phone numbers (fleet)</div><div class="v" id="fDid">—</div><div class="u" id="fDidDelta">—</div></div>
+      <div class="stat"><div class="k">Azure sessions (fleet)</div><div class="v" id="fAz">—</div><div class="u" id="fAzDelta">—</div></div>
+    </div>
+    <div class="note" id="fleetNote"></div>
+  </div>
+
+  <!-- ============ MATH ============ -->
+  <section class="doc panel">
+    <h2>The math</h2>
+    <p class="sub" style="margin-top:2px">Every output comes from these.</p>
+
+    <h3>The three solve modes</h3>
+    <p style="font-size:13.5px;color:var(--muted)">One equation — <code>work = concurrency × duration</code> — solved for a different unknown depending on what's fixed. Like <code>distance = speed × time</code>: give any two, get the third.</p>
+    <ul class="checklist">
+      <li><b>Hit a deadline</b> — you know volume + SLA. Unknown = concurrency, and the scaling needed to reach it. The "what must we grow" question.</li>
+      <li><b>Set concurrency</b> — concurrency is contracted or chosen. Unknown = duration. The "what happens at this number" question.</li>
+      <li><b>Cap the backend</b> — backend is fixed and not being raised. Unknown = what's achievable. Concurrency auto-sets to <code>min(backend, Azure)</code>; SIP and DIDs are sized to the cap so you never over-buy. The "what's possible inside a hard limit" question.</li>
+    </ul>
+    <div class="note">Modes 1 and 2 are inverses. Mode 3 is mode 2 with concurrency locked to your real ceiling instead of typed in. The scaling-plan table — current → required → delta — is the output that matters in all three.</div>
+
+    <h3>Work &amp; concurrency</h3>
+    <div class="formula">attempts  A   = base × retry
+channel_hold  = ASR × talk + (1−ASR) × ring        (sec/attempt)
+total_work W  = A × channel_hold                    (channel-seconds)
+useful sec/channel/day = window_hrs × 3600 × occupancy
+
+deadline D  → concurrency C = ⌈ W / (D × useful_sec_per_day) ⌉
+concurrency → duration_days = W / (C × occupancy × 3600) / window_hrs
+capped      → C = min(backend_cap, Azure); duration follows</div>
+
+    <h3>Scaling deltas (current → required)</h3>
+    <div class="formula">run            = concurrency actually carried
+backend_need   = run            → scale backend by max(0, run − backend_now)
+SIP_need       = ⌈run × (1+headroom)⌉ → buy max(0, SIP_need − SIP_now)
+DID_need       = ⌈dials_per_day / cap⌉ → procure max(0, DID_need − DID_now)
+Azure_need     = run            → quota-raise if run > Azure_now
+
+today's ceiling = min(backend_now, SIP_now, Azure_now)   (binding layer)</div>
+    <div class="note">In <b>capped</b> mode SIP and DIDs are sized to the backend cap, not to raw demand — you never buy channels the backend can't feed.</div>
+
+    <h3>Fleet rollup</h3>
+    <div class="formula">platform_concurrency = ⌈ (Σ tenant_concurrency) × simultaneity ⌉
+platform_backend_target = platform_concurrency
+platform_SIP  = ⌈platform_concurrency × (1+headroom)⌉
+platform_DIDs = Σ tenant_DIDs        (branded numbers don't pool across tenants)</div>
+
+    <h3>Glossary</h3>
+    <dl class="gloss">
+      <dt>ASR / AHT</dt><dd>Connect rate and connected talk time. Use measured per-vertical values from ClickHouse.</dd>
+      <dt>Occupancy</dt><dd>Share of time a channel is actually on a call. 0.75–0.90 with good pacing.</dd>
+      <dt>CPS</dt><dd>Rate you may <i>start</i> calls. Separate from the concurrent-channel cap. Burst past it → SIP 503.</dd>
+      <dt>SIP headroom</dt><dd>Buffer of SIP channels bought above peak concurrency. Real traffic spikes above the average — pacing overshoot, retry clusters, setup/teardown overlap. Without slack, the carrier rejects the call setup (SIP 503) the instant channels are full and the call is lost. Same idea as sizing trunks for a low blocking probability, not for the mean. 20% → buy 1.2× concurrency. Applied to SIP because it is the layer that hard-rejects calls when full.</dd>
+      <dt>Channels vs DIDs</dt><dd>Channels = concurrency. DIDs = caller identities, sized by spam-safe daily volume and rotated.</dd>
+      <dt>Reserved + burst</dt><dd>Give each tenant a guaranteed floor plus a shared burst pool; backend target = Σ floors + burst pool.</dd>
+    </dl>
+    <div class="note">A tenant's real throughput is the minimum across its backend slice, SIP channels, DID daily ceiling, and Azure budget. Provision balanced — extra SIP behind a small DID pool or a capped backend is wasted spend.</div>
+  </section>
+
+  <footer>All computation runs locally in this file. Replace ASR/AHT defaults with your measured numbers per tenant.</footer>
+</div>
+
+<script>
+let mode='deadline';
+const MODE_LABEL={deadline:'hit a deadline',conc:'set concurrency',capped:'cap the backend'};
+function setMode(m){
+  mode=m;
+  ['Deadline','Conc','Capped'].forEach(x=>document.getElementById('m'+x).classList.toggle('on','m'+x==='m'+({deadline:'Deadline',conc:'Conc',capped:'Capped'}[m])));
+  document.getElementById('fDeadline').style.display=m==='deadline'?'block':'none';
+  document.getElementById('fConc').style.display=m==='conc'?'block':'none';
+  document.getElementById('fCapped').style.display=m==='capped'?'block':'none';
+  document.getElementById('modeTag').textContent=MODE_LABEL[m];
+  document.getElementById('concK').textContent=m==='capped'?'Concurrency at cap':(m==='conc'?'Concurrency (set)':'Concurrency required');
+  compute();
+}
+const num=id=>parseFloat(document.getElementById(id).value)||0;
+const fmt=(n,d=0)=>Number(n).toLocaleString('en-IN',{maximumFractionDigits:d,minimumFractionDigits:d});
+
+function model(base){
+  const retry=Math.max(1,num('retry'));
+  const asr=Math.min(1,Math.max(.001,num('asr')/100));
+  const tc=num('aht'), tf=num('ring'), H=num('window');
+  const u=Math.min(1,Math.max(.1,num('occ')/100));
+  const A=base*retry, connects=A*asr;
+  const hold=asr*tc+(1-asr)*tf, W=A*hold, dayCh=H*3600*u;
+  return {A,connects,hold,W,dayCh,H,u,tc};
+}
+
+let last={};
+function compute(){
+  const ncap=Math.max(1,num('ncap')), head=num('head')/100, cps=Math.max(1,num('cps'));
+  const beNow=Math.max(1,num('backendCur')), sipNow=num('sipCur'), didNow=num('didCur'), azNow=Math.max(1,num('azureCur'));
+  const m=model(num('base'));
+
+  let run, Ctarget;
+  if(mode==='deadline'){const D=Math.max(.1,num('targetDays'));Ctarget=Math.max(1,Math.ceil(m.W/(D*m.dayCh)));run=Ctarget;}
+  else if(mode==='conc'){Ctarget=Math.max(1,Math.round(num('haveConc')));run=Ctarget;}
+  else {run=Math.max(1,Math.min(beNow,azNow));Ctarget=run;}
+
+  const durHrs=m.W/(run*m.u*3600), durDays=durHrs/m.H;
+  const dpd=m.A/Math.max(durDays,1e-6);
+  const sipReq=Math.ceil(run*(1+head)), didReq=Math.ceil(dpd/ncap), azReq=run, beReq=Ctarget;
+  const reqCps=run/Math.max(m.hold,1), ramp=run/cps, cph=m.connects/Math.max(durHrs,1e-6);
+  const ceilNow=Math.min(beNow,sipNow||Infinity,azNow);
+  let bindName='backend'; if((sipNow||Infinity)===ceilNow)bindName='SIP'; if(azNow===ceilNow)bindName='Azure';
+
+  document.getElementById('rConc').textContent=fmt(run);
+  document.getElementById('rDur').textContent=durHrs>=1?fmt(durHrs,1)+'h':fmt(durHrs*60,0)+'m';
+  document.getElementById('rDurDays').textContent='~'+fmt(durDays,1)+' calling days';
+  document.getElementById('rSip').textContent=fmt(sipReq);
+  document.getElementById('rSipNote').textContent='incl. '+num('head')+'% headroom';
+  document.getElementById('rPhones').textContent=fmt(didReq);
+  document.getElementById('rPhonesNote').textContent='@ '+fmt(ncap)+'/day each';
+  document.getElementById('rAttempts').textContent=fmt(m.A);
+  document.getElementById('rConnects').textContent=fmt(m.connects);
+  document.getElementById('rDpd').textContent=fmt(dpd);
+  document.getElementById('rCph').textContent=fmt(cph);
+  document.getElementById('rCps').textContent=fmt(reqCps,1)+' CPS';
+  document.getElementById('rRamp').textContent=fmt(ramp,0)+' s';
+  document.getElementById('rHold').textContent=fmt(m.hold,0)+' s';
+  document.getElementById('rCeil').textContent=fmt(ceilNow)+' ('+bindName+')';
+
+  // scaling plan
+  const rows=[
+    ['Backend cap',beNow,beReq],
+    ['SIP channels',sipNow,sipReq],
+    ['Phone numbers',didNow,didReq],
+    ['Azure sessions',azNow,azReq]
+  ];
+  let actions=[];
+  document.getElementById('plan').innerHTML=rows.map(([name,cur,req])=>{
+    const d=req-cur; let cls,txt;
+    if(d<=0){cls='ok';txt='OK ('+fmt(-d)+' spare)';}
+    else{cls=(name==='Azure sessions')?'bad':'scale';txt=(name==='Phone numbers'?'Procure +':name==='SIP channels'?'Buy +':'Scale +')+fmt(d);actions.push([name,d]);}
+    return `<tr><td>${name}</td><td>${fmt(cur)}</td><td>${fmt(req)}</td><td class="act ${cls}">${txt}</td></tr>`;
+  }).join('');
+
+  // verdict
+  const v=document.getElementById('verdict'),vi=document.getElementById('verdictIc'),vt=document.getElementById('verdictTxt');
+  if(mode==='capped'){
+    v.className='verdict ok';vi.textContent='◧';
+    vt.textContent='At backend '+fmt(beNow)+' this base takes ~'+fmt(durDays,1)+' calling days. Switch to "Hit a deadline" to see the backend target for a faster SLA.';
+    if(azNow<beNow){v.className='verdict scale';vi.textContent='!';vt.textContent='Azure ('+fmt(azNow)+') is below your backend cap — it is the binding ceiling. Raise Azure quota first.';}
+  } else if(actions.length===0){
+    v.className='verdict ok';vi.textContent='✓';vt.textContent='Stack ready — current capacity covers this with no procurement.';
+  } else {
+    const azBreach=actions.some(a=>a[0]==='Azure sessions');
+    v.className='verdict '+(azBreach?'bad':'scale');vi.textContent=azBreach?'!':'▲';
+    vt.textContent='Scale to serve this: '+actions.map(a=>a[0].replace(' cap','').replace(' sessions','').replace(' channels',' ch').replace('Phone numbers','DIDs')+' +'+fmt(a[1])).join(' · ');
+  }
+
+  // meter
+  const trackMax=Math.max(azNow,run*1.1);
+  const fill=document.getElementById('meterFill');
+  fill.style.width=Math.min(100,(run/trackMax)*100)+'%';
+  document.getElementById('meterVal').textContent=fmt(run);
+  fill.style.background=run>azNow?'var(--bad)':run>beNow?'var(--warn)':'var(--accent)';
+  const pB=(beNow/trackMax)*100,pA=(azNow/trackMax)*100;
+  document.getElementById('tickB').style.left=pB+'%';
+  document.getElementById('tickBL').style.left=pB+'%';document.getElementById('tickBL').textContent='backend '+fmt(beNow);
+  document.getElementById('tickA').style.left=Math.min(100,pA)+'%';
+  document.getElementById('tickAL').style.left=Math.min(100,pA)+'%';document.getElementById('tickAL').textContent='Azure '+fmt(azNow);
+
+  // checks
+  const checks=[];
+  if(reqCps>cps)checks.push(['warn','Steady dial rate '+fmt(reqCps,1)+' CPS exceeds trunk '+fmt(cps)+' CPS — add CPS or split trunks.']);
+  checks.push(['ok','Azure TPM is a separate ceiling from session count — verify tokens/min quota before high-concurrency launch.']);
+  document.getElementById('checks').innerHTML=checks.map(c=>`<div class="check ${c[0]}"><span class="dot"></span><span>${c[1]}</span></div>`).join('');
+
+  // quick ref
+  const days=[1,2,3,5,7];
+  document.getElementById('qref').innerHTML=days.map(D=>{
+    const cc=Math.ceil(m.W/(D*m.dayCh)),ss=Math.ceil(cc*(1+head)),dd=m.A/D,pp=Math.ceil(dd/ncap);
+    const br=cc>beNow;
+    return `<tr class="${br?'breach':''}"><td>${D} day${D>1?'s':''}</td><td>${fmt(cc)}${br?' ⚠':''}</td><td>${fmt(ss)}</td><td>${fmt(dd)}</td><td>${fmt(pp)}</td></tr>`;
+  }).join('');
+
+  last={run,durHrs,durDays,sipReq,didReq,beNow,sipNow,didNow,azNow,beReq,actions,ncap,head,reqCps,ramp,ceilNow,bindName};
+  renderFleet();
+}
+
+// ---------- fleet ----------
+let tenants=[
+  {name:'Volt Money',base:50000,days:2},
+  {name:'BharatNXT',base:30000,days:3},
+  {name:'Suryoday SFB',base:40000,days:2}
+];
+function tenantConc(t){const m=model(t.base);return Math.max(1,Math.ceil(m.W/(Math.max(.1,t.days)*m.dayCh)));}
+function tenantDids(t){const m=model(t.base);const dpd=m.A/Math.max(.1,t.days);return Math.ceil(dpd/Math.max(1,num('ncap')));}
+function renderRoster(){
+  document.getElementById('roster').innerHTML=tenants.map((t,i)=>
+    `<tr>
+      <td><input type="text" value="${t.name}" oninput="updT(${i},'name',this.value)"></td>
+      <td><input type="number" value="${t.base}" min="0" step="1000" oninput="updT(${i},'base',this.value)"></td>
+      <td><input type="number" value="${t.days}" min="0.1" step="0.5" oninput="updT(${i},'days',this.value)"></td>
+      <td class="reqcol">${fmt(tenantConc(t))}</td>
+      <td><button class="delbtn" onclick="delT(${i})" title="Remove">×</button></td>
+    </tr>`).join('');
+}
+function updT(i,k,v){tenants[i][k]=(k==='name')?v:parseFloat(v)||0;renderRoster();renderFleet();}
+function delT(i){tenants.splice(i,1);renderRoster();renderFleet();}
+function addTenant(){tenants.push({name:'New tenant',base:20000,days:2});renderRoster();renderFleet();}
+function renderFleet(){
+  const simul=Math.min(1,Math.max(.1,num('simul')/100)), head=num('head')/100;
+  const sumC=tenants.reduce((s,t)=>s+tenantConc(t),0);
+  const sumD=tenants.reduce((s,t)=>s+tenantDids(t),0);
+  const pC=Math.ceil(sumC*simul), pSip=Math.ceil(pC*(1+head)), pAz=pC;
+  const beNow=num('backendCur'),sipNow=num('sipCur'),didNow=num('didCur'),azNow=num('azureCur');
+  const dStr=(req,cur,verb)=>{const d=req-cur;return d>0?(verb+' +'+fmt(d)):('OK, '+fmt(-d)+' spare');};
+  document.getElementById('fBackend').textContent=fmt(pC);
+  document.getElementById('fBackendDelta').textContent=dStr(pC,beNow,'scale');
+  document.getElementById('fSip').textContent=fmt(pSip);
+  document.getElementById('fSipDelta').textContent=dStr(pSip,sipNow,'buy');
+  document.getElementById('fDid').textContent=fmt(sumD);
+  document.getElementById('fDidDelta').textContent=dStr(sumD,didNow,'procure');
+  document.getElementById('fAz').textContent=fmt(pAz);
+  document.getElementById('fAzDelta').textContent=dStr(pAz,azNow,'raise');
+  const beD=pC-beNow;
+  document.getElementById('fleetNote').textContent=beD>0
+    ? `Across ${tenants.length} tenants at ${num('simul')}% overlap, peak demand is ${fmt(pC)} concurrent — raise the backend cap from ${fmt(beNow)} to at least ${fmt(pC)} (a hybrid model: ${fmt(sumC)} reserved across tenants, throttled to a ${fmt(pC)} shared pool).`
+    : `Across ${tenants.length} tenants at ${num('simul')}% overlap, peak demand is ${fmt(pC)} concurrent — within your current backend cap of ${fmt(beNow)}.`;
+}
+
+function copySummary(){
+  const L=last;
+  const acts=L.actions.length?L.actions.map(a=>a[0]+' +'+fmt(a[1])).join(', '):'none (stack ready)';
+  const txt=
+`Pi Commerce — capacity & scaling plan [${MODE_LABEL[mode]}]
+Base ${fmt(num('base'))} x${num('retry')} retry | ASR ${num('asr')}% | AHT ${num('aht')}s | window ${num('window')}h/day | occ ${num('occ')}%
+-> Run concurrency: ${fmt(L.run)}
+-> Duration: ${fmt(L.durHrs,1)}h (~${fmt(L.durDays,1)} calling days)
+-> SIP needed: ${fmt(L.sipReq)} (have ${fmt(L.sipNow)}) | DIDs needed: ${fmt(L.didReq)} (have ${fmt(L.didNow)})
+-> Backend need: ${fmt(L.beReq)} (cap ${fmt(L.beNow)}) | Azure need: ${fmt(L.run)} (quota ${fmt(L.azNow)})
+-> Today's effective ceiling: ${fmt(L.ceilNow)} (${L.bindName} binding)
+-> Steady dial rate: ${fmt(L.reqCps,1)} CPS | ramp ${fmt(L.ramp,0)}s
+-> SCALE: ${acts}`;
+  navigator.clipboard.writeText(txt).then(()=>{const b=document.getElementById('copyBtn'),o=b.textContent;b.textContent='Copied to clipboard';setTimeout(()=>b.textContent=o,1600);});
+}
+
+renderRoster();
+compute();
+</script>
+</body>
+</html>
